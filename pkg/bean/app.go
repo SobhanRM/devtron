@@ -180,12 +180,16 @@ type GitCiTriggerRequest struct {
 }
 
 type GitCommit struct {
-	Commit      string //git hash
-	Author      string
-	Date        time.Time
-	Message     string
-	Changes     []string
-	WebhookData *WebhookData
+	Commit          string //git hash
+	Author          string
+	Date            time.Time
+	Message         string
+	Changes         []string
+	WebhookData     *WebhookData
+	GitMaterialUrl  string
+	GitRepoName     string
+	GitSourceType   pipelineConfig.SourceType
+	GitSourceValue  string
 }
 
 type WebhookData struct {
