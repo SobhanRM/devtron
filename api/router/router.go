@@ -20,6 +20,7 @@ package router
 import (
 	"encoding/json"
 	"github.com/devtron-labs/devtron/api/restHandler"
+	eaRouter "github.com/devtron-labs/devtron/api/router/ea"
 	"github.com/devtron-labs/devtron/api/router/pubsub"
 	pubsub2 "github.com/devtron-labs/devtron/client/pubsub"
 	"github.com/devtron-labs/devtron/client/telemetry"
@@ -79,6 +80,7 @@ type MuxRouter struct {
 	bulkUpdateRouter                 BulkUpdateRouter
 	WebhookListenerRouter            WebhookListenerRouter
 	appLabelsRouter                  AppLabelRouter
+	externalAppRouter                eaRouter.ExternalAppRouter
 }
 
 func NewMuxRouter(logger *zap.SugaredLogger, HelmRouter HelmRouter, PipelineConfigRouter PipelineConfigRouter,
@@ -98,7 +100,7 @@ func NewMuxRouter(logger *zap.SugaredLogger, HelmRouter HelmRouter, PipelineConf
 	ReleaseMetricsRouter ReleaseMetricsRouter, deploymentGroupRouter DeploymentGroupRouter, batchOperationRouter BatchOperationRouter,
 	chartGroupRouter ChartGroupRouter, testSuitRouter TestSuitRouter, imageScanRouter ImageScanRouter,
 	policyRouter PolicyRouter, gitOpsConfigRouter GitOpsConfigRouter, dashboardRouter DashboardRouter, attributesRouter AttributesRouter,
-	commonRouter CommonRouter, grafanaRouter GrafanaRouter, ssoLoginRouter SsoLoginRouter, telemetryRouter TelemetryRouter, telemetryWatcher telemetry.TelemetryEventClient, bulkUpdateRouter BulkUpdateRouter, webhookListenerRouter WebhookListenerRouter, appLabelsRouter AppLabelRouter) *MuxRouter {
+	commonRouter CommonRouter, grafanaRouter GrafanaRouter, ssoLoginRouter SsoLoginRouter, telemetryRouter TelemetryRouter, telemetryWatcher telemetry.TelemetryEventClient, bulkUpdateRouter BulkUpdateRouter, webhookListenerRouter WebhookListenerRouter, appLabelsRouter AppLabelRouter, externalAppRouter eaRouter.ExternalAppRouter) *MuxRouter {
 	r := &MuxRouter{
 		Router:                           mux.NewRouter(),
 		HelmRouter:                       HelmRouter,
@@ -148,6 +150,7 @@ func NewMuxRouter(logger *zap.SugaredLogger, HelmRouter HelmRouter, PipelineConf
 		bulkUpdateRouter:                 bulkUpdateRouter,
 		WebhookListenerRouter:            webhookListenerRouter,
 		appLabelsRouter:                  appLabelsRouter,
+		externalAppRouter:                externalAppRouter,
 	}
 	return r
 }
@@ -281,5 +284,8 @@ func (r MuxRouter) Init() {
 
 	webhookListenerRouter := r.Router.PathPrefix("/orchestrator/webhook/git").Subrouter()
 	r.WebhookListenerRouter.InitWebhookListenerRouter(webhookListenerRouter)
+
+	externalAppRouter := r.Router.PathPrefix("/orchestrator/ea").Subrouter()
+	r.externalAppRouter.Init(externalAppRouter)
 
 }

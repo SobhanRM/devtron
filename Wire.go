@@ -80,6 +80,9 @@ import (
 	user2 "github.com/devtron-labs/devtron/pkg/user"
 	"github.com/devtron-labs/devtron/util/session"
 	"github.com/google/wire"
+
+	eaRestHandler "github.com/devtron-labs/devtron/api/restHandler/ea"
+	eaRouter "github.com/devtron-labs/devtron/api/router/ea"
 )
 
 func InitializeApp() (*App, error) {
@@ -702,6 +705,11 @@ func InitializeApp() (*App, error) {
 		wire.Bind(new(app.AppLabelService), new(*app.AppLabelServiceImpl)),
 		pipelineConfig.NewAppLabelRepositoryImpl,
 		wire.Bind(new(pipelineConfig.AppLabelRepository), new(*pipelineConfig.AppLabelRepositoryImpl)),
+
+		eaRouter.NewExternalAppRouterImpl,
+		wire.Bind(new(eaRouter.ExternalAppRouter), new(*eaRouter.ExternalAppRouterImpl)),
+		eaRestHandler.NewExternalAppRestHandlerImpl,
+		wire.Bind(new(eaRestHandler.ExternalAppRestHandler), new(*eaRestHandler.ExternalAppRestHandlerImpl)),
 	)
 	return &App{}, nil
 }
