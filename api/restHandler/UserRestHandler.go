@@ -20,12 +20,6 @@ package restHandler
 import (
 	"encoding/json"
 	"errors"
-	"fmt"
-	request "github.com/devtron-labs/devtron/pkg/cluster"
-	"net/http"
-	"strconv"
-	"strings"
-
 	"github.com/devtron-labs/devtron/api/bean"
 	"github.com/devtron-labs/devtron/client/pubsub"
 	"github.com/devtron-labs/devtron/internal/util"
@@ -36,6 +30,9 @@ import (
 	"github.com/gorilla/mux"
 	"go.uber.org/zap"
 	"gopkg.in/go-playground/validator.v9"
+	"net/http"
+	"strconv"
+	"strings"
 )
 
 type UserRestHandler interface {
@@ -61,21 +58,18 @@ type userNamePassword struct {
 }
 
 type UserRestHandlerImpl struct {
-	userService                       user.UserService
-	validator                         *validator.Validate
-	logger                            *zap.SugaredLogger
-	enforcer                          rbac.Enforcer
-	natsClient                        *pubsub.PubSubClient
-	roleGroupService                  user.RoleGroupService
-	environmentClusterMappingsService request.EnvironmentService
+	userService      user.UserService
+	validator        *validator.Validate
+	logger           *zap.SugaredLogger
+	enforcer         rbac.Enforcer
+	natsClient       *pubsub.PubSubClient
+	roleGroupService user.RoleGroupService
 }
 
 func NewUserRestHandlerImpl(userService user.UserService, validator *validator.Validate,
-	logger *zap.SugaredLogger, enforcer rbac.Enforcer, natsClient *pubsub.PubSubClient, roleGroupService user.RoleGroupService,
-	environmentClusterMappingsService request.EnvironmentService) *UserRestHandlerImpl {
+	logger *zap.SugaredLogger, enforcer rbac.Enforcer, natsClient *pubsub.PubSubClient, roleGroupService user.RoleGroupService) *UserRestHandlerImpl {
 	userAuthHandler := &UserRestHandlerImpl{userService: userService, validator: validator, logger: logger,
-		enforcer: enforcer, natsClient: natsClient, roleGroupService: roleGroupService,
-		environmentClusterMappingsService: environmentClusterMappingsService}
+		enforcer: enforcer, natsClient: natsClient, roleGroupService: roleGroupService}
 	return userAuthHandler
 }
 
@@ -123,7 +117,7 @@ func (handler UserRestHandlerImpl) CreateUser(w http.ResponseWriter, r *http.Req
 			return
 		}
 
-		if len(groupRoles) > 0 {
+		if groupRoles != nil && len(groupRoles) > 0 {
 			for _, groupRole := range groupRoles {
 				if len(groupRole.Team) > 0 {
 					if ok := handler.enforcer.Enforce(token, rbac.ResourceUser, rbac.ActionCreate, strings.ToLower(groupRole.Team)); !ok {
@@ -164,75 +158,6 @@ func (handler UserRestHandlerImpl) CreateUser(w http.ResponseWriter, r *http.Req
 	writeJsonResp(w, err, res, http.StatusOK)
 }
 
-func (handler UserRestHandlerImpl) applyAuthentication(token string, newRoleFilters []bean.RoleFilter, oldRoleFilters []bean.RoleFilter) (bool, []bean.RoleFilter) {
-	uniqueExisting := make(map[string]bool)
-	uniqueNew := make(map[string]bool)
-	combinedRoleFilters := make([]bean.RoleFilter, 0)
-	dedupeRoleFilters := make([]bean.RoleFilter, 0)
-
-	// here expectation is only permitted items comes in new request, coz user can't see others
-	for _, roleFilter := range newRoleFilters {
-		if roleFilter.Entity == rbac.ResourceChartGroup {
-			combinedRoleFilters = append(combinedRoleFilters, roleFilter)
-			continue
-		}
-		envArr := strings.Split(roleFilter.Environment, ",")
-		for _, env := range envArr {
-			key := fmt.Sprintf("%s_%s_%s_%s", roleFilter.Team, env, roleFilter.EntityName, roleFilter.Action)
-			if _, ok := uniqueNew[key]; !ok {
-				uniqueNew[key] = true
-				rf := bean.RoleFilter{Team: roleFilter.Team, Environment: env, EntityName: roleFilter.EntityName, Action: roleFilter.Action}
-				combinedRoleFilters = append(combinedRoleFilters, rf)
-			}
-		}
-	}
-	for _, filter := range combinedRoleFilters {
-		if len(filter.Team) > 0 {
-			if ok := handler.enforcer.Enforce(token, rbac.ResourceUser, rbac.ActionUpdate, strings.ToLower(filter.Team)); !ok {
-				return false, combinedRoleFilters
-			}
-			if ok := handler.enforcer.Enforce(token, rbac.ResourceGlobalEnvironment, rbac.ActionGet, strings.ToLower(filter.Environment)); !ok {
-				return false, combinedRoleFilters
-			}
-		}
-	}
-
-	// here remove element which are existing in new set,
-	// here check manager access for remaining item weather he has access or not ..
-	// .. if yes then remove them also as it intentionally removed by manager
-	// .. else retain other item which are not belongs to him.
-	for _, roleFilter := range oldRoleFilters {
-		envArr := strings.Split(roleFilter.Environment, ",")
-		for _, env := range envArr {
-			key := fmt.Sprintf("%s_%s_%s_%s", roleFilter.Team, env, roleFilter.EntityName, roleFilter.Action)
-
-			if _, ok := uniqueExisting[key]; !ok {
-				uniqueExisting[key] = true
-				if _, ok := uniqueNew[key]; !ok {
-					rf := bean.RoleFilter{Team: roleFilter.Team, Environment: env, EntityName: roleFilter.EntityName, Action: roleFilter.Action}
-					dedupeRoleFilters = append(dedupeRoleFilters, rf)
-				}
-			}
-		}
-	}
-	for _, filter := range dedupeRoleFilters {
-		pass := 0
-		if len(filter.Team) > 0 {
-			if ok := handler.enforcer.Enforce(token, rbac.ResourceUser, rbac.ActionUpdate, strings.ToLower(filter.Team)); !ok {
-				pass = pass + 1
-			}
-			if ok := handler.enforcer.Enforce(token, rbac.ResourceGlobalEnvironment, rbac.ActionGet, strings.ToLower(filter.Environment)); !ok {
-				pass = pass + 1
-			}
-			if pass == 2 {
-				rf := bean.RoleFilter{Team: filter.Team, Environment: filter.Environment, EntityName: filter.EntityName, Action: filter.Action}
-				combinedRoleFilters = append(combinedRoleFilters, rf)
-			}
-		}
-	}
-	return true, combinedRoleFilters
-}
-
 func (handler UserRestHandlerImpl) UpdateUser(w http.ResponseWriter, r *http.Request) {
 	decoder := json.NewDecoder(r.Body)
 	userId, err := handler.userService.GetLoggedInUser(r)
@@ -252,17 +177,22 @@ func (handler UserRestHandlerImpl) UpdateUser(w http.ResponseWriter, r *http.Req
 
 	// RBAC enforcer applying
 	token := r.Header.Get("token")
-	user, err := handler.userService.GetById(userInfo.Id)
-	if err != nil {
-		writeJsonResp(w, err, nil, http.StatusBadRequest)
-		return
+	if userInfo.RoleFilters != nil && len(userInfo.RoleFilters) > 0 {
+		for _, filter := range userInfo.RoleFilters {
+			if len(filter.Team) > 0 {
+				if ok := handler.enforcer.Enforce(token, rbac.ResourceUser, rbac.ActionUpdate, strings.ToLower(filter.Team)); !ok {
+					writeJsonResp(w, errors.New("unauthorized"), nil, http.StatusForbidden)
+					return
+				}
+			}
+		}
+	} else {
+		if ok := handler.enforcer.Enforce(token, rbac.ResourceUser, rbac.ActionUpdate, "*"); !ok {
+			writeJsonResp(w, errors.New("unauthorized"), nil, http.StatusForbidden)
+			return
+		}
 	}
-	authCheck, preparedRoleFilter := handler.applyAuthentication(token, userInfo.RoleFilters, user.RoleFilters)
-	if authCheck == false {
-		writeJsonResp(w, errors.New("unauthorized"), nil, http.StatusForbidden)
-		return
-	}
-	userInfo.RoleFilters = preparedRoleFilter
+
 	// auth check inside groups
 	if len(userInfo.Groups) > 0 {
 		groupRoles, err := handler.roleGroupService.FetchRolesForGroups(userInfo.Groups)
@@ -272,76 +202,18 @@ func (handler UserRestHandlerImpl) UpdateUser(w http.ResponseWriter, r *http.Req
 			return
 		}
 
-		if len(groupRoles) > 0 {
+		if groupRoles != nil && len(groupRoles) > 0 {
 			for _, groupRole := range groupRoles {
-				if groupRole.Entity == rbac.ResourceChartGroup {
-					continue
-				}
-
 				if len(groupRole.Team) > 0 {
 					if ok := handler.enforcer.Enforce(token, rbac.ResourceUser, rbac.ActionUpdate, strings.ToLower(groupRole.Team)); !ok {
 						response.WriteResponse(http.StatusForbidden, "FORBIDDEN", w, errors.New("unauthorized"))
 						return
 					}
 				}
-
-				envArr := strings.Split(groupRole.Environment, ",")
-				for _, env := range envArr {
-					rbObject := env
-					if env == "" {
-						rbObject = "*"
-					}
-					if ok := handler.enforcer.Enforce(token, rbac.ResourceGlobalEnvironment, rbac.ActionGet, rbObject); !ok {
-						writeJsonResp(w, errors.New("unauthorized"), nil, http.StatusForbidden)
-						return
-					}
-				}
 			}
-		}
-	}
-
-	var dedupeRoleFilters []string
-	uniqueExisting := make(map[string]bool)
-	uniqueNew := make(map[string]bool)
-	for _, item := range userInfo.Groups{
-		if _, ok := uniqueNew[item]; !ok {
-			uniqueNew[item] = true
-		}
-	}
-	for _, item := range user.Groups{
-		if _, ok := uniqueExisting[item]; !ok {
-			uniqueExisting[item] = true
-			if _, ok := uniqueNew[item]; !ok {
-				dedupeRoleFilters = append(dedupeRoleFilters, item)
-			}
-		}
-	}
-
-	eGroupRoles, err := handler.roleGroupService.FetchRolesForGroups(dedupeRoleFilters)
-	if err != nil && err != pg.ErrNoRows {
-		handler.logger.Errorw("service err, UpdateUser", "err", err, "payload", userInfo)
-		writeJsonResp(w, err, "", http.StatusInternalServerError)
-		return
-	}
-	for _, groupRole := range eGroupRoles {
-		if groupRole.Entity == rbac.ResourceChartGroup {
-			continue
-		}
-		if len(groupRole.Team) > 0 {
-			if ok := handler.enforcer.Enforce(token, rbac.ResourceUser, rbac.ActionUpdate, strings.ToLower(groupRole.Team)); !ok {
+		} else {
+			if ok := handler.enforcer.Enforce(token, rbac.ResourceUser, rbac.ActionUpdate, "*"); !ok {
 				response.WriteResponse(http.StatusForbidden, "FORBIDDEN", w, errors.New("unauthorized"))
-				return
-			}
-		}
-
-		envArr := strings.Split(groupRole.Environment, ",")
-		for _, env := range envArr {
-			rbObject := env
-			if env == "" {
-				rbObject = "*"
-			}
-			if ok := handler.enforcer.Enforce(token, rbac.ResourceGlobalEnvironment, rbac.ActionGet, rbObject); !ok {
-				writeJsonResp(w, errors.New("unauthorized"), nil, http.StatusForbidden)
 				return
 			}
 		}
@@ -397,58 +269,28 @@ func (handler UserRestHandlerImpl) GetById(w http.ResponseWriter, r *http.Reques
 		isActionUserSuperAdmin = true
 	}
 
-	environments, err := handler.environmentClusterMappingsService.GetEnvironmentListForAutocomplete()
-	if err != nil {
-		handler.logger.Errorw("service err, CreateRoleGroup", "err", err)
-		writeJsonResp(w, err, nil, http.StatusInternalServerError)
-		return
-	}
-	var grantedEnvironment []string
-	for _, item := range environments {
-		if ok := handler.enforcer.Enforce(token, rbac.ResourceGlobalEnvironment, rbac.ActionGet, strings.ToLower(item.Environment)); ok {
-			grantedEnvironment = append(grantedEnvironment, item.Environment)
-		}
-	}
-
 	// NOTE: if no role assigned, user will be visible to all manager.
 	// RBAC enforcer applying
-	newRoleFilter := make([]bean.RoleFilter, 0)
-	for _, filter := range res.RoleFilters {
-		if filter.Entity == rbac.ResourceChartGroup || isActionUserSuperAdmin {
-			newRoleFilter = append(newRoleFilter, filter)
-			continue
-		}
-		pass := 0
-		if ok := handler.enforcer.Enforce(token, rbac.ResourceUser, rbac.ActionGet, strings.ToLower(filter.Team)); ok {
-			pass = pass + 1
-		}
-
-		envArr := strings.Split(filter.Environment, ",")
-		envNewArr := make([]string, 0)
-		for _, env := range envArr {
-			if env == "" {
-				if ok := handler.enforcer.Enforce(token, rbac.ResourceGlobalEnvironment, rbac.ActionGet, "*"); ok {
-					pass = pass + 1
-					envNewArr = append(envNewArr, env)
-				} else {
-					pass = pass + 1
-					envNewArr = grantedEnvironment
-					filter.ViewOnly = true
-				}
-			} else {
-				if ok := handler.enforcer.Enforce(token, rbac.ResourceGlobalEnvironment, rbac.ActionGet, strings.ToLower(env)); ok {
-					pass = pass + 1
-					envNewArr = append(envNewArr, env)
+	if res.RoleFilters != nil && len(res.RoleFilters) > 0 {
+		authPass := false
+		for _, filter := range res.RoleFilters {
+			if len(filter.Team) > 0 {
+				if ok := handler.enforcer.Enforce(token, rbac.ResourceUser, rbac.ActionGet, strings.ToLower(filter.Team)); ok {
+					authPass = true
 				}
 			}
 		}
-
-		filter.Environment = strings.Join(envNewArr[:], ",")
-		if pass > 1 {
-			newRoleFilter = append(newRoleFilter, filter)
+		if len(res.RoleFilters) == 1 && res.RoleFilters[0].Entity == rbac.ResourceChartGroup {
+			authPass = true
+		}
+		if isActionUserSuperAdmin {
+			authPass = true
+		}
+		if authPass == false {
+			writeJsonResp(w, errors.New("unauthorized"), nil, http.StatusForbidden)
+			return
 		}
 	}
-	res.RoleFilters = newRoleFilter
 	//RBAC enforcer Ends
 
 	writeJsonResp(w, err, res, http.StatusOK)
@@ -542,18 +384,6 @@ func (handler UserRestHandlerImpl) FetchRoleGroupById(w http.ResponseWriter, r *
 					return
 				}
 			}
-
-			envArr := strings.Split(filter.Environment, ",")
-			for _, env := range envArr {
-				rbObject := env
-				if env == "" {
-					rbObject = "*"
-				}
-				if ok := handler.enforcer.Enforce(token, rbac.ResourceGlobalEnvironment, rbac.ActionGet, rbObject); !ok {
-					writeJsonResp(w, errors.New("unauthorized"), nil, http.StatusForbidden)
-					return
-				}
-			}
 		}
 	}
 	//RBAC enforcer Ends
@@ -635,17 +465,21 @@ func (handler UserRestHandlerImpl) UpdateRoleGroup(w http.ResponseWriter, r *htt
 	handler.logger.Infow("request payload, UpdateRoleGroup", "err", err, "payload", request)
 	// RBAC enforcer applying
 	token := r.Header.Get("token")
-	roleGroup, err := handler.roleGroupService.FetchRoleGroupsById(request.Id)
-	if err != nil {
-		writeJsonResp(w, err, nil, http.StatusBadRequest)
-		return
+	if request.RoleFilters != nil && len(request.RoleFilters) > 0 {
+		for _, filter := range request.RoleFilters {
+			if len(filter.Team) > 0 {
+				if ok := handler.enforcer.Enforce(token, rbac.ResourceUser, rbac.ActionUpdate, strings.ToLower(filter.Team)); !ok {
+					writeJsonResp(w, errors.New("unauthorized"), nil, http.StatusForbidden)
+					return
+				}
+			}
+		}
+	} else {
+		if ok := handler.enforcer.Enforce(token, rbac.ResourceUser, rbac.ActionUpdate, "*"); !ok {
+			writeJsonResp(w, errors.New("unauthorized"), nil, http.StatusForbidden)
+			return
+		}
 	}
-	authCheck, preparedRoleFilter := handler.applyAuthentication(token, request.RoleFilters, roleGroup.RoleFilters)
-	if authCheck == false {
-		writeJsonResp(w, errors.New("unauthorized"), nil, http.StatusForbidden)
-		return
-	}
-	request.RoleFilters = preparedRoleFilter
 	//RBAC enforcer Ends
 
 	err = handler.validator.Struct(request)

@@ -19,6 +19,7 @@ package util
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io/ioutil"
 	"math"
@@ -174,8 +175,10 @@ func CpuToNumber(cpu string) (float64, error) {
 	return convertResource(cpuParser, cpu)
 }
 func convertResource(rp *resourceParser, resource string) (float64, error) {
+	//sugaredLogger := util.NewSugardLogger()
 	matches := rp.regex.FindAllStringSubmatch(resource, -1)
 	if len(matches[0]) < 2 {
+		//sugaredLogger.Infow(fmt.Sprintf("expected pattern for %s should match %s, found %s\n", rp.name, rp.pattern, resource))
 		fmt.Printf("expected pattern for %s should match %s, found %s\n", rp.name, rp.pattern, resource)
 		return float64(0), fmt.Errorf("expected pattern for %s should match %s, found %s", rp.name, rp.pattern, resource)
 	}
@@ -226,4 +229,73 @@ func ParseFloat(str string) (float64, error) {
 	}
 
 	return baseVal * math.Pow10(int(expVal)), nil
+}
+
+func Autoscale(dat map[string]interface{}) (bool, error) {
+	limit, ok:= dat["resources"].(map[string]interface{})["limits"].(map[string]interface{})
+	if !ok {
+		return false, errors.New("limit is required")
+	}
+	request, ok:= dat["resources"].(map[string]interface{})["requests"].(map[string]interface{})
+	if !ok {
+		return false, errors.New("Request is required")
+	}
+	envoproxyLimit,ok := dat["envoyproxy"].(map[string]interface{})["resources"].(map[string]interface{})["limits"].(map[string]interface{})
+	if !ok {
+		return false, errors.New("envoproxyLimit is required")
+	}
+	envoproxyMemory,ok := dat["envoyproxy"].(map[string]interface{})["resources"].(map[string]interface{})["requests"].(map[string]interface{})
+	if !ok {
+		return false, errors.New("envoproxyMemory is required")
+	}
+
+
+	checkCPUlimit, ok := limit["cpu"]
+	if !ok {
+		return false, errors.New("CPU limit is required")
+	}
+	checkMemorylimit, ok := limit["memory"]
+	if !ok {
+		return false, errors.New("Memory limit is required")
+	}
+	checkCPURequests, ok := request["cpu"]
+	if !ok {
+		return false, errors.New("CPU requests is required")
+	}
+	checkMemoryRequests, ok := request["memory"]
+	if !ok {
+		return false, errors.New("Memory requests is required")
+	}
+
+	checkEnvoproxyCPUlimit, ok := envoproxyLimit["cpu"]
+	if !ok {
+		return false, errors.New("Envoproxy CPU limit is required")
+	}
+	checkEnvoproxyMemorylimit, ok := envoproxyLimit["memory"]
+	if !ok {
+		return false, errors.New("Envoproxy Memory limit is required")
+	}
+	checkEnvoproxyCPURequests, ok := envoproxyMemory["cpu"]
+	if !ok {
+		return false, errors.New("Envoproxy CPU requests is required")
+	}
+	checkEnvoproxyMemoryRequests, ok := envoproxyMemory["memory"]
+	if !ok {
+		return false, errors.New("Envoproxy memory requests is required")
+	}
+
+	cpu_limit, _ := CpuToNumber(checkCPUlimit.(string))
+	memory_limit, _ := MemoryToNumber(checkMemorylimit.(string))
+	cpu_request, _ := CpuToNumber(checkCPURequests.(string))
+	memory_request, _ := MemoryToNumber(checkMemoryRequests.(string))
+
+	envoproxy_cpu_limit, _ := CpuToNumber(checkEnvoproxyCPUlimit.(string))
+	envoproxy_memory_limit, _ := MemoryToNumber(checkEnvoproxyMemorylimit.(string))
+	envoproxy_cpu_request, _ := CpuToNumber(checkEnvoproxyCPURequests.(string))
+	envoproxy_memory_request, _ := MemoryToNumber(checkEnvoproxyMemoryRequests.(string))
+	if (envoproxy_cpu_limit < envoproxy_cpu_request) || (envoproxy_memory_limit < envoproxy_memory_request) || (cpu_limit < cpu_request) || (memory_limit < memory_request) {
+		return false, errors.New("requests is greater than limits")
+	}
+	return true, nil
+
 }
