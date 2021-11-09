@@ -37,5 +37,7 @@ func NewExternalAppRouterImpl(externalAppRestHandler restHandler.ExternalAppRest
 }
 
 func (impl ExternalAppRouterImpl) Init(router *mux.Router) {
-
+	router.Path("/details/{cluster-id}/{namespace}/{release-name}").
+		HandlerFunc(impl.externalAppRestHandler.GetLatestDetailsForHelmApp).
+		Methods("GET")
 }

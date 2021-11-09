@@ -18,18 +18,32 @@
 package restHandler
 
 import (
+	"github.com/devtron-labs/devtron/pkg/ea"
 	"go.uber.org/zap"
+	"net/http"
 )
 
 type ExternalAppRestHandler interface {
+	GetLatestDetailsForHelmApp(w http.ResponseWriter, r *http.Request)
 }
 
 type ExternalAppRestHandlerImpl struct {
 	logger *zap.SugaredLogger
+	externalAppService ea.ExternalAppService
 }
 
-func NewExternalAppRestHandlerImpl(logger *zap.SugaredLogger) *ExternalAppRestHandlerImpl {
+func NewExternalAppRestHandlerImpl(logger *zap.SugaredLogger, externalAppService ea.ExternalAppService) *ExternalAppRestHandlerImpl {
 	return &ExternalAppRestHandlerImpl{
 		logger: logger,
+		externalAppService: externalAppService,
 	}
+}
+
+func (handler ExternalAppRestHandlerImpl) GetLatestDetailsForHelmApp(w http.ResponseWriter, r *http.Request) {
+
+	clusterId := 1
+	namespace := "manish"
+	releaseName := "manish-chart-release"
+
+	handler.externalAppService.GetLatestDetailsForHelmApp(clusterId, namespace, releaseName)
 }
