@@ -18,6 +18,7 @@
 package ea
 
 import (
+	"github.com/devtron-labs/devtron/internal/util"
 	"github.com/devtron-labs/devtron/pkg/cluster"
 	"go.uber.org/zap"
 )
@@ -29,16 +30,28 @@ type ExternalAppService interface {
 type ExternalAppServiceImpl struct {
 	logger         *zap.SugaredLogger
 	clusterService cluster.ClusterService
+	k8sUtil        *util.K8sUtil
 }
 
-func NewExternalAppServiceImpl(logger *zap.SugaredLogger, clusterService cluster.ClusterService) *ExternalAppServiceImpl {
+func NewExternalAppServiceImpl(logger *zap.SugaredLogger, clusterService cluster.ClusterService, k8sUtil *util.K8sUtil) *ExternalAppServiceImpl {
 	return &ExternalAppServiceImpl{
 		logger:         logger,
 		clusterService: clusterService,
+		k8sUtil:        k8sUtil,
 	}
 }
 
-
 func (impl ExternalAppServiceImpl) GetLatestDetailsForHelmApp(clusterId int, namespace string, releaseName string) error {
+
+	clusterDetail, err := impl.clusterService.FindById(clusterId)
+	if err != nil {
+		return err
+	}
+
+	_, err = impl.clusterService.GetClusterConfig(clusterDetail)
+	if err != nil {
+		return err
+	}
+
 	return nil
 }
