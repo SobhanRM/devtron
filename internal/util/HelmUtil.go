@@ -19,7 +19,6 @@ package util
 
 import (
 	"go.uber.org/zap"
-	helmclient "github.com/mittwald/go-helm-client"
 )
 
 type HelmUtil struct {
